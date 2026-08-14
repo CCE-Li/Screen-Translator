@@ -1,0 +1,21 @@
+[package]
+name = "screen-translator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screen-translator-core = { path = "../core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+windows = { version = "0.61", features = ["Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Core", "Media_Ocr", "Storage_Streams", "System", "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Graphics_GdiPlus", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_System_Com", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Shell"] }
+crossbeam-channel = "0.5.16"
+env_logger = "0.11.11"
+anyhow = "1.0.104"
+
+[build-dependencies]
+
+
+
+
