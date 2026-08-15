@@ -6,7 +6,9 @@
 框选区域 → 实时捕获 → 帧差 → OCR → 翻译 → 透明 Overlay 覆盖
 ```
 
-## 当前状态（Phase 1 + Phase 2，Windows）
+## 当前状态（Phase 1 + 2 Windows · Phase 3 Android）
+
+### Windows
 
 - ✅ **捕获**：DXGI Desktop Duplication + D3D11，只把区域从 GPU 拷到 CPU（staging texture + `CopySubresourceRegion`）
 - ✅ **多区域**：所有启用区域并行运行，每区域独立 OCR 引擎（使用该区域 `source_lang`）+ 独立会话/缓存；overlay 合并绘制
@@ -16,6 +18,27 @@
 - ✅ **编辑/工作模式**：拖拽创建/移动区域、**拖拽边缘/角点缩放**、右键删除；工作模式鼠标/点击穿透
 - ✅ **性能**：帧差采样（24x24 亮度网格）跳过静态帧；OCR 冷却 + 定时重触发；OCR/翻译 LRU 缓存；相同文本不重复翻译；翻译单线程排队（不阻塞捕获/OCR）
 - ✅ **性能监控**：每 10s 打印聚合指标 —— FPS / 捕获耗时 / OCR 耗时 / 翻译耗时 / OCR 次数 / OCR 缓存命中 / 翻译缓存命中率 / 进程 CPU% / 内存
+
+### Android（`android/`，Kotlin + Compose）
+
+- ✅ **捕获**：MediaProjection + VirtualDisplay + ImageReader（分辨率上限 720p，降低功耗）
+- ✅ **OCR**：ML Kit 文本识别（经典 Play-services 版），支持 Latin/中文/日文；首次使用时自动下载模型（`Tasks.await` 等待式，避免冷启动失败）
+- ✅ **翻译**：OpenAI 兼容 HTTP / 本地 echo；LRU 缓存 + 去重
+- ✅ **Overlay**：`TYPE_APPLICATION_OVERLAY` 全屏透明窗口，`FLAG_NOT_TOUCHABLE` 触摸穿透，Canvas 圆角背景 + 居中文字
+- ✅ **区域选择**：半透明全屏 Activity 拖拽框选，持久化到 SharedPreferences
+- ✅ **Foreground Service**：前台服务 + 通知（停止按钮），`foregroundServiceType=mediaProjection`
+- ✅ **流水线**：捕获线程独占会话；单翻译线程网络调用，结果经阻塞队列回传（镜像桌面端线程模型）；帧差 + OCR 冷却 + 重触发 + 缓存
+- ⚠️ **验证说明**：APK 构建、安装、区域选择、MediaProjection 授权、前台服务、捕获→OCR 调用→统计全链路已在 API 34 模拟器验证（`stats: ocr_runs=2 frames=2 ocr_ms=14`）。ML Kit OCR 模型需 Play services 动态下载，模拟器上受镜像限制未能完成模型加载；**真机（带 Play services）首次启动会自动下载模型并正常工作**。
+
+#### Android 构建
+
+```powershell
+cd android
+gradlew.bat :app:assembleDebug        # APK 在 app/build/outputs/apk/debug/
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+启动后：设置翻译区域（拖拽）→ 选择 OCR 语言/目标语言/翻译服务 → 开始翻译 → 授权屏幕捕获。
 
 ## 快速开始
 
@@ -136,6 +159,6 @@ cargo clippy --workspace
 
 ## 路线图
 
-- **Phase 3/4**：Android（MediaProjection + 悬浮球 + Foreground Service + 触摸穿透）
+- **Phase 4**：Android 悬浮球、触摸穿透完善、屏幕旋转适配、电量优化、性能面板
 - **Phase 5**：跨平台 Provider/Cache/Layout/Config 统一
-- **Phase 6**：全屏智能翻译、游戏/字幕模式、原文覆盖（OpenCV/AI Inpainting）、本地模型、GPU 加速
+- **Phase 6**：全屏智能翻译、游戏/字幕模式、原文覆盖（背景遮盖 / OpenCV·AI Inpainting）、本地模型（离线 OCR/翻译）、GPU 加速、性能 HUD
