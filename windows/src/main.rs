@@ -18,12 +18,23 @@ fn main() -> Result<()> {
         .format_timestamp_millis()
         .init();
 
-    // Make our coordinate space physical pixels, not DPI-scaled.
-    unsafe {
-        let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(
+    // Make our coordinate space physical pixels, not DPI-scaled. DXGI capture
+    // and cursor positions must be in the same space as the overlay window.
+    let dpi_ok = unsafe {
+        windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(
             windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-        );
+        )
+        .is_ok()
+    };
+    if !dpi_ok {
+        // Fall back to system DPI awareness (still physical for a single scale).
+        let _ = unsafe {
+            windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(
+                windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+            )
+        };
     }
+    log::info!("DPI awareness: per-monitor v2 = {dpi_ok}");
 
     let path = config_path();
     let config = screen_translator_core::config::AppConfig::load_or_default(&path);

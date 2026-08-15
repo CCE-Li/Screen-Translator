@@ -797,10 +797,17 @@ fn build_stats_snapshot(
         mem_mb: mem,
     }
 }
-
-fn send_combined_overlays(runners: &[RegionRunner], overlay_tx: &Sender<OverlayMsg>) {    let mut all: Vec<OverlayText> = Vec::new();
+fn send_combined_overlays(runners: &[RegionRunner], overlay_tx: &Sender<OverlayMsg>) {
+    let mut all: Vec<OverlayText> = Vec::new();
     for r in runners {
         all.extend(r.overlays.iter().cloned());
+    }
+    if !all.is_empty() {
+        let sample: Vec<String> = all
+            .iter()
+            .map(|o| format!("({:.0},{:.0} {}x{})", o.box_.x, o.box_.y, o.box_.width, o.box_.height))
+            .collect();
+        log::debug!("overlay draw: {} item(s): {sample:?}", all.len());
     }
     if overlay_tx.send(OverlayMsg::Draw(all)).is_err() {
         log::debug!("overlay channel closed");

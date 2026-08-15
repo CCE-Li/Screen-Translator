@@ -35,7 +35,7 @@ use windows::Win32::Graphics::GdiPlus::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, GetSystemMetrics, RegisterClassW, SetWindowPos, WNDCLASSW,
-    CS_HREDRAW, CS_VREDRAW, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    CS_HREDRAW, CS_VREDRAW, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
 };
 
@@ -237,7 +237,7 @@ impl OverlayWindow {
                 windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN),
                 screen_w,
                 screen_h,
-                SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )
             .map_err(|e| anyhow::anyhow!("SetWindowPos: {e}"))?;
 
