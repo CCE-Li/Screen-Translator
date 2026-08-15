@@ -48,11 +48,45 @@ const PIXEL_FORMAT_32BPP_PARGB: i32 = 0x0E200B;
 const GWLP_EXSTYLE: windows::Win32::UI::WindowsAndMessaging::WINDOW_LONG_PTR_INDEX =
     windows::Win32::UI::WindowsAndMessaging::WINDOW_LONG_PTR_INDEX(-20);
 
-/// An active drag rectangle during region editing.
+/// One active drag rectangle during region editing.
 #[derive(Debug, Clone, Copy)]
 pub struct DragRect {
     pub start: (i32, i32),
     pub current: (i32, i32),
+}
+
+/// Live performance numbers shown in the overlay HUD.
+#[derive(Debug, Clone, Copy)]
+pub struct StatsSnapshot {
+    pub fps: f32,
+    pub target_fps: f32,
+    pub capture_ms: f32,
+    pub ocr_ms: f32,
+    pub translate_ms: f32,
+    pub ocr_runs: u64,
+    pub pending: usize,
+    pub cache_hit: f32,
+    pub cpu: f32,
+    pub mem_mb: f32,
+}
+
+impl StatsSnapshot {
+    fn lines(&self) -> Vec<String> {
+        vec![
+            format!(
+                "fps {:.1}/{:.0}  cap {:.0}ms  ocr {:.0}ms  tr {:.0}ms",
+                self.fps, self.target_fps, self.capture_ms, self.ocr_ms, self.translate_ms
+            ),
+            format!(
+                "ocr {}  pending {}  tc-hit {:.0}%  cpu {:.0}%  mem {:.0}MB",
+                self.ocr_runs,
+                self.pending,
+                self.cache_hit * 100.0,
+                self.cpu,
+                self.mem_mb
+            ),
+        ]
+    }
 }
 
 /// Which edge/corner of a region is being resized.
@@ -169,6 +203,8 @@ pub struct OverlayWindow {
     dib: HBITMAP,
     style: OverlayStyle,
     mode: bool, // true = work (click-through), false = edit
+    stats: Option<StatsSnapshot>,
+    last_items: Vec<OverlayText>,
 }
 
 impl OverlayWindow {
@@ -188,6 +224,8 @@ impl OverlayWindow {
                 dib: HBITMAP::default(),
                 style,
                 mode: false,
+                stats: None,
+                last_items: Vec::new(),
             };
             overlay.init_gdiplus()?;
             overlay.init_dib()?;
@@ -325,11 +363,24 @@ impl OverlayWindow {
         self.render(|_g| {});
     }
 
+    /// Update the performance HUD snapshot; redraws the work view.
+    pub fn set_stats(&mut self, stats: StatsSnapshot) {
+        self.stats = Some(stats);
+        if self.mode {
+            let items = std::mem::take(&mut self.last_items);
+            self.render_work(&items);
+            self.last_items = items;
+        }
+    }
+
     /// Render work-mode translation overlays.
     pub fn render_work(&mut self, items: &[OverlayText]) {
+        self.last_items = items.to_vec();
         let style = self.style.clone();
         let opacity = style.opacity.clamp(0.0, 1.0);
-        self.render(|g| {
+        let hud = self.stats;
+        let w = self.width as f32;
+        self.render(move |g| {
             unsafe {
                 let _ = GdipSetSmoothingMode(g, SmoothingModeAntiAlias);
                 let _ = GdipSetTextRenderingHint(g, TextRenderingHintAntiAlias);
@@ -354,6 +405,9 @@ impl OverlayWindow {
                     &style,
                     opacity,
                 );
+            }
+            if let Some(h) = hud {
+                draw_stats_hud(g, family, &h, w);
             }
             unsafe {
                 if !family.is_null() {
@@ -532,8 +586,47 @@ fn draw_region_box(
     }
 }
 
-fn draw_resize_handles(g: *mut GpGraphics, rect: Rect) {
+/// Draw the performance HUD panel in the top-right corner.
+fn draw_stats_hud(g: *mut GpGraphics, family: *mut GpFontFamily, stats: &StatsSnapshot, screen_w: f32) {
+    let lines = stats.lines();
+    let panel_w = 340.0f32;
+    let line_h = 15.0f32;
+    let pad = 8.0f32;
+    let panel_h = pad * 2.0 + lines.len() as f32 * line_h + 2.0;
+    let rect = RectF {
+        X: (screen_w - panel_w - 12.0).max(0.0),
+        Y: 10.0,
+        Width: panel_w,
+        Height: panel_h,
+    };
     unsafe {
+        let mut path: *mut GpPath = null_mut();
+        GdipCreatePath(FillModeAlternate, &mut path);
+        if !path.is_null() {
+            let r = 6.0f32.min(rect.Height / 2.0);
+            let rr = RectF { X: rect.X, Y: rect.Y, Width: rect.Width, Height: rect.Height };
+            rounded_rect_path(path, rr, r);
+            let mut brush: *mut GpSolidFill = null_mut();
+            GdipCreateSolidFill(0xB8000000, &mut brush);
+            if !brush.is_null() {
+                GdipFillPath(g, brush as *mut GpBrush, path);
+                GdipDeleteBrush(brush as *mut GpBrush);
+            }
+            GdipDeletePath(path);
+        }
+        for (i, line) in lines.iter().enumerate() {
+            let r = RectF {
+                X: rect.X + pad,
+                Y: rect.Y + pad + i as f32 * line_h,
+                Width: rect.Width - pad * 2.0,
+                Height: line_h,
+            };
+            draw_text_basic(g, family, line, 12.0, r, 0xE0FFFFFF, StringAlignmentNear);
+        }
+    }
+}
+
+fn draw_resize_handles(g: *mut GpGraphics, rect: Rect) {    unsafe {
         let (l, t, r, b) = (rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
         let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
         let s = 5.0;
@@ -575,7 +668,7 @@ fn draw_text(
         Width: b.width + pad * 2.0,
         Height: b.height + pad * 2.0,
     };
-    let bg_color = parse_color(&style.background_color, opacity);
+    let bg_color = parse_color(&style.background_color, opacity * style.background_opacity);
     let text_color = parse_color(&style.text_color, opacity);
 
     unsafe {

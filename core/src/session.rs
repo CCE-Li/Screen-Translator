@@ -268,6 +268,20 @@ impl RegionSession {
         d
     }
 
+    /// Non-destructive snapshot of the counters (for HUD displays that must
+    /// not disturb interval measurement done by `take_stats_delta`).
+    pub fn peek_stats(&self) -> SessionStats {
+        SessionStats {
+            ocr_runs: self.stats.ocr_runs,
+            frames_seen: self.stats.frames_seen,
+            ocr_ms: self.stats.ocr_ms,
+            ocr_cache_hits: self.stats.ocr_cache_hits,
+            translation_cache_hits: self.stats.translation_cache_hits,
+            translation_cache_misses: self.stats.translation_cache_misses,
+            pending: self.stats.pending,
+        }
+    }
+
     fn build_overlays(&mut self, cfg: &RegionConfig) -> Vec<OverlayText> {
         let mut out = Vec::new();
         for region in &self.last_regions {
@@ -325,6 +339,7 @@ fn cfg_overlay_style(_cfg: &RegionConfig) -> crate::config::OverlayStyle {
         opacity: crate::config::defaults::OPACITY,
         text_color: crate::config::defaults::TEXT_COLOR.to_string(),
         background_color: crate::config::defaults::BG_COLOR.to_string(),
+        background_opacity: crate::config::defaults::BG_OPACITY,
         corner_radius: crate::config::defaults::CORNER_RADIUS,
         shadow: crate::config::defaults::SHADOW,
         font_family: crate::config::defaults::FONT_FAMILY.to_string(),

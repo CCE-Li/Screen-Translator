@@ -23,6 +23,7 @@ use crate::capture::DesktopCapture;
 use crate::ocr_winrt::WindowsOcr;
 use crate::overlay::{
     apply_resize, drag_to_rect, hit_test_resize, DragRect, OverlayWindow, ResizeHandle,
+    StatsSnapshot,
 };
 
 const HOTKEY_TOGGLE_MODE: i32 = 1;
@@ -38,6 +39,7 @@ enum Mode {
 
 enum OverlayMsg {
     Draw(Vec<OverlayText>),
+    Stats(StatsSnapshot),
     Clear,
 }
 
@@ -314,6 +316,11 @@ impl UiState {
                 OverlayMsg::Draw(list) => {
                     if matches!(self.mode, Mode::Work) {
                         ov.render_work(&list);
+                    }
+                }
+                OverlayMsg::Stats(s) => {
+                    if matches!(self.mode, Mode::Work) {
+                        ov.set_stats(s);
                     }
                 }
                 OverlayMsg::Clear => {
@@ -725,6 +732,12 @@ fn run_pipeline(
             log_stats(&metrics, &mut runners, interval);
             last_stats_log = std::time::Instant::now();
             metrics = Metrics::default();
+        } else if config.show_stats {
+            // Refresh the on-screen HUD more frequently.
+            let (cpu, mem, next) = sample_process_stats(proc_prev);
+            proc_prev = next;
+            let snapshot = build_stats_snapshot(&metrics, &runners, interval, cpu, mem);
+            let _ = overlay_tx.send(OverlayMsg::Stats(snapshot));
         }
 
         std::thread::sleep(interval);
@@ -736,8 +749,56 @@ fn run_pipeline(
     let _ = overlay_tx.send(OverlayMsg::Clear);
 }
 
-fn send_combined_overlays(runners: &[RegionRunner], overlay_tx: &Sender<OverlayMsg>) {
-    let mut all: Vec<OverlayText> = Vec::new();
+/// Build an on-screen HUD snapshot from interval metrics.
+fn build_stats_snapshot(
+    metrics: &Metrics,
+    runners: &[RegionRunner],
+    interval: Duration,
+    cpu: f32,
+    mem: f32,
+) -> StatsSnapshot {
+    let frames = metrics.frames.max(1);
+    let mut ocr_ms = 0u64;
+    let mut ocr_runs = 0u64;
+    let mut pending = 0usize;
+    let mut tcache_hits = 0u64;
+    let mut tcache_misses = 0u64;
+    for r in runners.iter() {
+        let d = r.session.peek_stats();
+        ocr_runs += d.ocr_runs;
+        ocr_ms += d.ocr_ms;
+        pending += d.pending;
+        tcache_hits += d.translation_cache_hits;
+        tcache_misses += d.translation_cache_misses;
+    }
+    let hit = if tcache_hits + tcache_misses > 0 {
+        tcache_hits as f32 / (tcache_hits + tcache_misses) as f32
+    } else {
+        0.0
+    };
+    StatsSnapshot {
+        fps: metrics.frames as f32 / 10.0,
+        target_fps: (1.0 / interval.as_secs_f64()) as f32,
+        capture_ms: metrics.capture_ms_total as f32 / frames as f32,
+        ocr_ms: if ocr_runs > 0 {
+            ocr_ms as f32 / ocr_runs as f32
+        } else {
+            0.0
+        },
+        translate_ms: if metrics.translate_calls > 0 {
+            metrics.translate_ms_total as f32 / metrics.translate_calls as f32
+        } else {
+            0.0
+        },
+        ocr_runs,
+        pending,
+        cache_hit: hit,
+        cpu,
+        mem_mb: mem,
+    }
+}
+
+fn send_combined_overlays(runners: &[RegionRunner], overlay_tx: &Sender<OverlayMsg>) {    let mut all: Vec<OverlayText> = Vec::new();
     for r in runners {
         all.extend(r.overlays.iter().cloned());
     }

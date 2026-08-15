@@ -10,6 +10,7 @@ pub mod defaults {
     pub const OPACITY: f32 = 0.9;
     pub const TEXT_COLOR: &str = "#FFFFFF";
     pub const BG_COLOR: &str = "#B0000000";
+    pub const BG_OPACITY: f32 = 1.0;
     pub const CORNER_RADIUS: f32 = 6.0;
     pub const SHADOW: bool = true;
     pub const FONT_FAMILY: &str = "Microsoft YaHei UI";
@@ -60,6 +61,10 @@ pub struct OverlayStyle {
     /// Background behind translation text, #AARRGGBB.
     #[serde(default = "default_bg_color")]
     pub background_color: String,
+    /// Extra opacity multiplier (0.0..=1.0) for the background box. Set close
+    /// to 1.0 with a fully-opaque color to cover the original text underneath.
+    #[serde(default = "default_bg_opacity")]
+    pub background_opacity: f32,
     #[serde(default = "default_radius")]
     pub corner_radius: f32,
     #[serde(default = "default_shadow")]
@@ -81,6 +86,9 @@ fn default_text_color() -> String {
 }
 fn default_bg_color() -> String {
     "#B0000000".into()
+}
+fn default_bg_opacity() -> f32 {
+    1.0
 }
 fn default_radius() -> f32 {
     6.0
@@ -140,6 +148,13 @@ pub struct AppConfig {
     pub translation: TranslationConfig,
     #[serde(default = "default_overlay")]
     pub overlay_style: OverlayStyle,
+    /// Draw a live performance HUD in the overlay corner.
+    #[serde(default = "default_show_stats")]
+    pub show_stats: bool,
+}
+
+fn default_show_stats() -> bool {
+    false
 }
 
 fn default_translation() -> TranslationConfig {
@@ -160,6 +175,7 @@ fn default_overlay() -> OverlayStyle {
         opacity: default_opacity(),
         text_color: default_text_color(),
         background_color: default_bg_color(),
+        background_opacity: default_bg_opacity(),
         corner_radius: default_radius(),
         shadow: default_shadow(),
         font_family: default_font_family(),
@@ -176,6 +192,7 @@ impl Default for AppConfig {
             ocr_language: String::new(),
             translation: default_translation(),
             overlay_style: default_overlay(),
+            show_stats: default_show_stats(),
         }
     }
 }

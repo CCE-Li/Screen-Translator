@@ -18,6 +18,8 @@
 - ✅ **编辑/工作模式**：拖拽创建/移动区域、**拖拽边缘/角点缩放**、右键删除；工作模式鼠标/点击穿透
 - ✅ **性能**：帧差采样（24x24 亮度网格）跳过静态帧；OCR 冷却 + 定时重触发；OCR/翻译 LRU 缓存；相同文本不重复翻译；翻译单线程排队（不阻塞捕获/OCR）
 - ✅ **性能监控**：每 10s 打印聚合指标 —— FPS / 捕获耗时 / OCR 耗时 / 翻译耗时 / OCR 次数 / OCR 缓存命中 / 翻译缓存命中率 / 进程 CPU% / 内存
+- ✅ **性能 HUD**：`show_stats: true` 时在 overlay 右上角实时绘制 FPS/耗时/缓存命中率/CPU/内存面板
+- ✅ **原文覆盖**：`background_opacity` 配置（0..1）+ 不透明背景色可完全遮住原文，让译文干净地取代原文
 
 ### Android（`android/`，Kotlin + Compose）
 
@@ -79,11 +81,13 @@ cargo run -p screen-translator
     "diff_threshold": 0.01    // 帧差超过该比例才触发 OCR
   },
   "ocr_language": "",         // 空 = 用户配置文件语言
+  "show_stats": false,        // 在 overlay 右上角显示实时性能面板
   "translation": { "provider": "local" },
   "overlay_style": {
     "opacity": 0.9,
     "text_color": "#FFFFFF",
-    "background_color": "#B0000000",
+    "background_color": "#B0000000",   // #AARRGGBB
+    "background_opacity": 1.0,         // 0..1；设 1.0 且背景色不透明即可遮住原文
     "corner_radius": 6.0,
     "shadow": true,
     "font_family": "Microsoft YaHei UI",

@@ -87,6 +87,7 @@ mod tests {
             opacity: 1.0,
             text_color: "#FFFFFF".into(),
             background_color: "#B0000000".into(),
+            background_opacity: 1.0,
             corner_radius: 4.0,
             shadow: true,
             font_family: "Arial".into(),
