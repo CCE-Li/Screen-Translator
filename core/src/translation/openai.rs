@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use super::{normalize_text, TranslateError, TranslateRequest, TranslationProvider};
 use crate::types::Translation;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OpenAiConfig {
     /// e.g. `https://api.openai.com/v1`
     pub base_url: String,
@@ -34,6 +34,19 @@ fn default_retries() -> u32 {
 }
 fn default_batch() -> usize {
     8
+}
+
+impl Default for OpenAiConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.openai.com/v1".into(),
+            api_key: String::new(),
+            model: "gpt-4o-mini".into(),
+            timeout_secs: default_timeout(),
+            max_retries: default_retries(),
+            batch_size: default_batch(),
+        }
+    }
 }
 
 pub struct OpenAiProvider {

@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -20,6 +20,7 @@ use screen_translator_core::translation::{TranslateRequest, TranslationProvider}
 use screen_translator_core::types::{OverlayText, Rect, Translation};
 
 use crate::capture::DesktopCapture;
+use crate::debugui::{DebugCommand, DebugShared};
 use crate::ocr_winrt::WindowsOcr;
 use crate::overlay::{
     apply_resize, drag_to_rect, hit_test_resize, DragRect, OverlayWindow, ResizeHandle,
@@ -69,6 +70,8 @@ pub struct UiState {
     overlay_tx: Sender<OverlayMsg>,
     config: AppConfig,
     config_path: PathBuf,
+    /// Shared state with the debug panel.
+    shared: Arc<Mutex<DebugShared>>,
     mode: Mode,
     drag: Option<DragRect>,
     moving_index: Option<usize>,
@@ -117,7 +120,7 @@ impl PipelineChannels {
 }
 
 impl UiState {
-    pub fn new(config: AppConfig, config_path: PathBuf) -> Self {
+    pub fn new(config: AppConfig, config_path: PathBuf, shared: Arc<Mutex<DebugShared>>) -> Self {
         let (overlay_tx, overlay_rx) = crossbeam_channel::unbounded::<OverlayMsg>();
 
         let mode = if has_workable_config(&config) {
@@ -126,18 +129,30 @@ impl UiState {
             Mode::Edit
         };
 
-        Self {
+        let state = Self {
             overlay: None,
             overlay_rx,
             overlay_tx,
             config,
             config_path,
+            shared,
             mode,
             drag: None,
             moving_index: None,
             resize: None,
             channels: None,
             pipeline: None,
+        };
+        state.publish_status();
+        state
+    }
+
+    /// Reflect current mode/pipeline status into the debug panel.
+    fn publish_status(&self) {
+        if let Ok(mut s) = self.shared.lock() {
+            s.mode_work = matches!(self.mode, Mode::Work);
+            s.pipeline_running = self.pipeline.is_some();
+            s.config = self.config.clone();
         }
     }
 
@@ -250,6 +265,7 @@ impl UiState {
         let done_rx = ch.done_rx.clone();
         let config = self.config.clone();
         let shutdown = ch.shutdown.clone();
+        let shared = self.shared.clone();
 
         let handle = std::thread::Builder::new()
             .name("pipeline".into())
@@ -264,11 +280,13 @@ impl UiState {
                     done_tx,
                     done_rx,
                     shutdown,
+                    shared,
                 )
             })
             .map_err(|e| anyhow!("spawn pipeline thread: {e}"))?;
         self.pipeline = Some(handle);
         self.channels = Some(ch);
+        self.publish_status();
         Ok(())
     }
 
@@ -281,6 +299,7 @@ impl UiState {
             // The pipeline thread exits promptly (≤ one capture interval).
             let _ = handle.join();
         }
+        self.publish_status();
     }
 
     fn switch_mode(&mut self, work: bool) -> Result<()> {
@@ -308,6 +327,7 @@ impl UiState {
     }
 
     fn on_timer(&mut self) {
+        self.drain_debug_commands();
         while let Ok(msg) = self.overlay_rx.try_recv() {
             let Some(ov) = self.overlay.as_mut() else {
                 continue;
@@ -327,6 +347,60 @@ impl UiState {
                     ov.clear();
                 }
             }
+        }
+    }
+
+    /// Handle commands issued by the debug panel.
+    fn drain_debug_commands(&mut self) {
+        let commands: Vec<DebugCommand> = {
+            let mut s = match self.shared.lock() {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            std::mem::take(&mut s.commands)
+        };
+        for cmd in commands {
+            match cmd {
+                DebugCommand::StartPipeline => {
+                    self.sync_config_from_shared();
+                    let _ = self.start_pipeline();
+                }
+                DebugCommand::StopPipeline => {
+                    self.stop_pipeline();
+                }
+                DebugCommand::ToggleMode => {
+                    let work = !matches!(self.mode, Mode::Work);
+                    let _ = self.switch_mode(work);
+                }
+                DebugCommand::ApplyConfig => {
+                    let needs_restart = self.pipeline.is_some();
+                    if needs_restart {
+                        self.stop_pipeline();
+                    }
+                    self.sync_config_from_shared();
+                    if let Err(e) = self.config.save(&self.config_path) {
+                        log::warn!("failed to save config from debug panel: {e}");
+                    }
+                    if needs_restart {
+                        let _ = self.start_pipeline();
+                    }
+                }
+                DebugCommand::ReloadConfig => {
+                    if let Ok(cfg) = AppConfig::load(&self.config_path) {
+                        self.config = cfg;
+                        if let Ok(mut s) = self.shared.lock() {
+                            s.config = self.config.clone();
+                        }
+                    }
+                }
+            }
+        }
+        self.publish_status();
+    }
+
+    fn sync_config_from_shared(&mut self) {
+        if let Ok(s) = self.shared.lock() {
+            self.config = s.config.clone();
         }
     }
 
@@ -577,11 +651,16 @@ fn run_pipeline(
     done_tx: Sender<DoneMsg>,
     done_rx: Receiver<DoneMsg>,
     shutdown: Arc<AtomicBool>,
+    shared: Arc<Mutex<DebugShared>>,
 ) {
     log::info!(
         "pipeline thread started ({} region(s))",
         regions.len()
     );
+
+    if let Ok(mut s) = shared.lock() {
+        s.pipeline_running = true;
+    }
 
     let mut capture = match DesktopCapture::new() {
         Ok(c) => c,
@@ -732,15 +811,24 @@ fn run_pipeline(
             log_stats(&metrics, &mut runners, interval);
             last_stats_log = std::time::Instant::now();
             metrics = Metrics::default();
-        } else if config.show_stats {
-            // Refresh the on-screen HUD more frequently.
+        } else {
+            // Refresh stats for the HUD and/or the debug panel.
             let (cpu, mem, next) = sample_process_stats(proc_prev);
             proc_prev = next;
             let snapshot = build_stats_snapshot(&metrics, &runners, interval, cpu, mem);
-            let _ = overlay_tx.send(OverlayMsg::Stats(snapshot));
+            if config.show_stats {
+                let _ = overlay_tx.send(OverlayMsg::Stats(snapshot));
+            }
+            if let Ok(mut s) = shared.lock() {
+                s.stats = Some(snapshot);
+            }
         }
 
         std::thread::sleep(interval);
+    }
+
+    if let Ok(mut s) = shared.lock() {
+        s.pipeline_running = false;
     }
 
     // Dropping `translate_tx` signals the worker to stop.

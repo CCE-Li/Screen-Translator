@@ -51,6 +51,23 @@ cargo run -p screen-translator
 
 首次运行会生成 `config.json`（在 exe 同级目录）。默认使用本地 echo 翻译，可立即看到“捕获→OCR→覆盖”整条链路是否工作。
 
+### 开发调试面板（egui）
+
+```powershell
+cargo run -p screen-translator -- --debug
+```
+
+打开一个独立的 egui 调试窗口，可实时查看/操作：
+
+- **实时统计**：fps / 捕获耗时 / OCR 耗时 / 翻译耗时 / OCR 次数 / 待翻译数 / 缓存命中率 / CPU / 内存
+- **翻译区域**：增删改区域坐标、启停、源/目标语言
+- **翻译设置**：切换 local echo / OpenAI 兼容 provider，编辑 base_url / key / model / batch
+- **捕获/外观**：fps、OCR 冷却、ocr_language、opacity、背景不透明度、show_stats 等
+- **开始/停止/工作⇄编辑**按钮 + **保存并应用 / 重新载入** config
+- **日志**：底部滚动显示与控制台一致的日志输出
+
+面板与主程序共享状态：改配置后点「保存并应用」即热生效（pipeline 自动重启）。不传 `--debug` 时行为与之前完全一致（日志仍输出到控制台）。
+
 ### 操作
 
 | 操作 | 说明 |

@@ -1,9 +1,11 @@
 mod app;
 mod capture;
+mod debugui;
 mod ocr_winrt;
 mod overlay;
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 
@@ -14,9 +16,7 @@ fn config_path() -> PathBuf {
 }
 
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .init();
+    let open_debug = std::env::args().any(|a| a == "--debug");
 
     // Make our coordinate space physical pixels, not DPI-scaled. DXGI capture
     // and cursor positions must be in the same space as the overlay window.
@@ -46,43 +46,45 @@ fn main() -> Result<()> {
             log::info!("wrote starter config to {}", path.display());
         }
     }
+
+    let shared = Arc::new(Mutex::new(debugui::DebugShared::new(config.clone(), path.clone())));
+    {
+        let shared_log = debugui::SharedLog::new(shared.clone());
+        log::set_boxed_logger(Box::new(shared_log))
+            .map_err(|e| anyhow::anyhow!("set_logger: {e}"))?;
+        log::set_max_level(log::LevelFilter::Info);
+    }
+
+    if open_debug {
+        debugui::spawn_debug_panel(shared.clone());
+    }
+
+    let cfg = shared.lock().unwrap().config.clone();
     log::info!(
         "translation provider: {}",
-        match config.translation {
-            screen_translator_core::config::TranslationConfig::Local => "local (echo)",
-            screen_translator_core::config::TranslationConfig::OpenAi(ref c) => {
-                c.base_url.as_str()
-            }
+        match cfg.translation {
+            screen_translator_core::config::TranslationConfig::Local => "local (echo)".to_string(),
+            screen_translator_core::config::TranslationConfig::OpenAi(c) => c.base_url,
         }
-    );
-    log::info!(
-        "regions: {} (mode: {})",
-        config.regions.len(),
-        if config.regions.iter().any(|r| r.enabled) { "work" } else { "edit" }
     );
 
     overlay::register_overlay_class()?;
 
-    let mut ui = app::UiState::new(config, path);
-    ui.create_overlay()?;
+    let mut ui = app::UiState::new(config, path, shared.clone());    ui.create_overlay()?;
     ui.start_pipeline()?; // no-op when there are no enabled regions
 
     log::info!(
-        "Screen Translator running. Toggle hotkey = Ctrl+Alt+key (see 'hotkeys:' line above), quit = Ctrl+Alt+key."
+        "Screen Translator running. Toggle hotkey = Ctrl+Alt+key (see 'hotkeys:' line above), quit = Ctrl+Alt+key.{}",
+        if open_debug { " Debug panel open (--debug)." } else { "" }
     );
 
     unsafe {
         let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
-        while windows::Win32::UI::WindowsAndMessaging::GetMessageW(
-            &mut msg,
-            None,
-            0,
-            0,
-        )
-        .as_bool()
+        while windows::Win32::UI::WindowsAndMessaging::GetMessageW(&mut msg, None, 0, 0).as_bool()
         {
             let _ = windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
-            let _ = windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);        }
+            let _ = windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
+        }
     }
     Ok(())
 }

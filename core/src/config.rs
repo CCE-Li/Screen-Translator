@@ -24,7 +24,7 @@ use crate::translation::openai::OpenAiConfig;
 use crate::types::Rect;
 
 /// Selects the translation backend at runtime.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "provider", rename_all = "lowercase")]
 pub enum TranslationConfig {
     /// Offline echo provider (no API). Verify the pipeline without network.
